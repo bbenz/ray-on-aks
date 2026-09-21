@@ -1,0 +1,5 @@
+[
+  { "op": "test", "path": "/kind", "value": "RayJob" },
+  { "op": "test", "path": "/spec/clusterSelector/ray.io~1cluster", "value": "ray-t4" },
+  { "op": "add", "path": "/spec/submitterPodTemplate/metadata", "value": { "labels": { "ray-submit": "ray-t4" } } }
+]

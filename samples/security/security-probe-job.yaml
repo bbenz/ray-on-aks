@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: poc-security-template
+  namespace: ray-learn
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 90
+  template:
+    metadata:
+      labels:
+        app: poc-security-probe
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.azure.com/agentpool: nodepool1
+      containers:
+        - name: probe
+          image: rayproject/ray:2.58.0-py311-cpu@sha256:5b4128ad47050e80b08a9fac96187e04e7e6dd13abe3f074813818bc86460afe
+          command: ["python", "/opt/poc/security_probe.py"]
+          env: []
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: code
+              mountPath: /opt/poc
+              readOnly: true
+      volumes:
+        - name: code
+          configMap:
+            name: poc-security-probe-code

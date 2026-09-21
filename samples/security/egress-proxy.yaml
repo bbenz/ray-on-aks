@@ -1,0 +1,184 @@
+# Squid forward proxy with an explicit destination allowlist for the Ray
+# dependency and model downloads used by samples/quickstart.
+#
+# This is a development-environment example that was exercised with the
+# ray-learn namespace. It is not a data-loss-prevention control and it does not
+# inspect TLS: it allows CONNECT tunnels to the listed domains and denies the
+# rest. Have your networking owner review the allowlist before you use it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ray-egress
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ray-egress-proxy
+  namespace: ray-egress
+data:
+  squid.conf: |
+    http_port 3128
+    visible_hostname ray-egress-proxy
+    acl CONNECT method CONNECT
+    acl SSL_ports port 443
+    acl downloads dstdomain .pypi.org .pythonhosted.org download.pytorch.org download-r2.pytorch.org .huggingface.co .hf.co
+    http_access deny !CONNECT
+    http_access deny !SSL_ports
+    http_access allow downloads
+    http_access deny all
+    cache deny all
+    cache_mem 16 MB
+    cache_effective_user _daemon_
+    cache_effective_group _daemon_
+    max_filedescriptors 1024
+    cache_log /dev/stderr
+    logformat ray %ts.%03tu %>a %rm %>Hs
+    access_log stdio:/dev/stdout ray
+    pid_filename /tmp/squid.pid
+    coredump_dir /tmp
+    pinger_enable off
+    shutdown_lifetime 1 seconds
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: ray-egress
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: approved-download-proxy
+  namespace: ray-egress
+spec:
+  podSelector:
+    matchLabels:
+      app: ray-egress-proxy
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ray-learn
+          podSelector:
+            matchLabels:
+              ray.io/cluster: ray-t4
+            matchExpressions:
+              - key: ray.io/node-type
+                operator: In
+                values: [head, worker]
+      ports:
+        - protocol: TCP
+          port: 3128
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 0.0.0.0/8
+              - 10.0.0.0/8
+              - 100.64.0.0/10
+              - 127.0.0.0/8
+              - 169.254.0.0/16
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 198.18.0.0/15
+              - 224.0.0.0/4
+              - 240.0.0.0/4
+              - 168.63.129.16/32
+      ports:
+        - protocol: TCP
+          port: 443
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ray-egress-proxy
+  namespace: ray-egress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ray-egress-proxy
+  template:
+    metadata:
+      labels:
+        app: ray-egress-proxy
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.azure.com/agentpool: nodepool1
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 584792
+        runAsGroup: 584792
+        fsGroup: 584792
+      containers:
+        - name: squid
+          image: ubuntu/squid:7.2-26.04_edge@sha256:8d5461d24218ef2d151841ab168b071beb75018236f854b64b2ad8500a68a0e2
+          command: ["/usr/sbin/squid-gnutls"]
+          args: ["-N", "-f", "/etc/squid/squid.conf"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          ports:
+            - name: proxy
+              containerPort: 3128
+          readinessProbe:
+            tcpSocket:
+              port: proxy
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/squid/squid.conf
+              subPath: squid.conf
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: ray-egress-proxy
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ray-egress-proxy
+  namespace: ray-egress
+spec:
+  type: ClusterIP
+  selector:
+    app: ray-egress-proxy
+  ports:
+    - name: proxy
+      port: 3128
+      targetPort: proxy

@@ -1,0 +1,132 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: ray-t4
+  namespace: ray-learn
+spec:
+  rayVersion: "2.58.0"
+  enableInTreeAutoscaling: false
+  headGroupSpec:
+    serviceType: ClusterIP
+    rayStartParams:
+      dashboard-host: "0.0.0.0"
+      num-cpus: "0"
+      num-gpus: "0"
+      object-store-memory: "1073741824"
+      metrics-export-port: "8080"
+    template:
+      metadata:
+        annotations:
+          cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+      spec:
+        automountServiceAccountToken: false
+        nodeSelector:
+          kubernetes.io/os: linux
+          kubernetes.azure.com/agentpool: nodepool1
+        containers:
+          - name: ray-head
+            image: rayproject/ray:2.58.0-py311-cpu@sha256:5b4128ad47050e80b08a9fac96187e04e7e6dd13abe3f074813818bc86460afe
+            env:
+              - name: RAY_USAGE_STATS_ENABLED
+                value: "0"
+            ports:
+              - name: gcs
+                containerPort: 6379
+              - name: dashboard
+                containerPort: 8265
+              - name: client
+                containerPort: 10001
+              - name: metrics
+                containerPort: 8080
+            resources:
+              requests:
+                cpu: "1"
+                memory: 4Gi
+                ephemeral-storage: 4Gi
+              limits:
+                cpu: "1"
+                memory: 4Gi
+                ephemeral-storage: 20Gi
+            securityContext:
+              runAsNonRoot: true
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+              seccompProfile:
+                type: RuntimeDefault
+            volumeMounts:
+              - name: shared-memory
+                mountPath: /dev/shm
+              - name: ray-learning-code
+                mountPath: /opt/ray-samples
+                readOnly: true
+        volumes:
+          - name: shared-memory
+            emptyDir:
+              medium: Memory
+              sizeLimit: 2Gi
+          - name: ray-learning-code
+            configMap:
+              name: ray-learning-code
+  workerGroupSpecs:
+    - groupName: t4
+      replicas: 1
+      minReplicas: 1
+      maxReplicas: 1
+      rayStartParams:
+        num-cpus: "2"
+        num-gpus: "1"
+        object-store-memory: "2147483648"
+        metrics-export-port: "8080"
+      template:
+        spec:
+          automountServiceAccountToken: false
+          nodeSelector:
+            kubernetes.io/os: linux
+            kubernetes.azure.com/agentpool: raygpu
+          tolerations:
+            - key: sku
+              operator: Equal
+              value: gpu
+              effect: NoSchedule
+          containers:
+            - name: ray-worker
+              image: rayproject/ray:2.58.0-py311-cu128@sha256:38043f7104a969db5bfa49c565ff59acb4ceec73abdb2d4b2ba98b957395db0b
+              env:
+                - name: RAY_USAGE_STATS_ENABLED
+                  value: "0"
+              ports:
+                - name: metrics
+                  containerPort: 8080
+              resources:
+                requests:
+                  cpu: "2"
+                  memory: 12Gi
+                  nvidia.com/gpu: 1
+                  ephemeral-storage: 8Gi
+                limits:
+                  cpu: "2"
+                  memory: 12Gi
+                  nvidia.com/gpu: 1
+                  ephemeral-storage: 24Gi
+              securityContext:
+                runAsNonRoot: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: shared-memory
+                  mountPath: /dev/shm
+                - name: ray-learning-code
+                  mountPath: /opt/ray-samples
+                  readOnly: true
+          volumes:
+            - name: shared-memory
+              emptyDir:
+                medium: Memory
+                sizeLimit: 3Gi
+            - name: ray-learning-code
+              configMap:
+                name: ray-learning-code

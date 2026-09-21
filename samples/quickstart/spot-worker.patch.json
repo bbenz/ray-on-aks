@@ -1,0 +1,12 @@
+[
+  {
+    "op": "add",
+    "path": "/spec/workerGroupSpecs/0/template/spec/tolerations/-",
+    "value": {
+      "key": "kubernetes.azure.com/scalesetpriority",
+      "operator": "Equal",
+      "value": "spot",
+      "effect": "NoSchedule"
+    }
+  }
+]

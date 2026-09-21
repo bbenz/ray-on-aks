@@ -1,0 +1,46 @@
+[
+  { "op": "test", "path": "/kind", "value": "RayCluster" },
+  { "op": "test", "path": "/metadata/name", "value": "ray-t4" },
+  { "op": "test", "path": "/metadata/namespace", "value": "ray-learn" },
+  { "op": "add", "path": "/spec/authOptions", "value": { "mode": "token" } },
+  {
+    "op": "add",
+    "path": "/spec/headGroupSpec/template/spec/containers/0/env/-",
+    "value": { "name": "HTTP_PROXY", "value": "http://ray-egress-proxy.ray-egress.svc.cluster.local:3128" }
+  },
+  {
+    "op": "add",
+    "path": "/spec/headGroupSpec/template/spec/containers/0/env/-",
+    "value": { "name": "HTTPS_PROXY", "value": "http://ray-egress-proxy.ray-egress.svc.cluster.local:3128" }
+  },
+  {
+    "op": "add",
+    "path": "/spec/headGroupSpec/template/spec/containers/0/env/-",
+    "value": { "name": "NO_PROXY", "value": "localhost,127.0.0.1,.svc,.cluster.local,10.0.0.0/8" }
+  },
+  {
+    "op": "add",
+    "path": "/spec/headGroupSpec/template/spec/containers/0/env/-",
+    "value": { "name": "HF_HUB_DISABLE_XET", "value": "1" }
+  },
+  {
+    "op": "add",
+    "path": "/spec/workerGroupSpecs/0/template/spec/containers/0/env/-",
+    "value": { "name": "HTTP_PROXY", "value": "http://ray-egress-proxy.ray-egress.svc.cluster.local:3128" }
+  },
+  {
+    "op": "add",
+    "path": "/spec/workerGroupSpecs/0/template/spec/containers/0/env/-",
+    "value": { "name": "HTTPS_PROXY", "value": "http://ray-egress-proxy.ray-egress.svc.cluster.local:3128" }
+  },
+  {
+    "op": "add",
+    "path": "/spec/workerGroupSpecs/0/template/spec/containers/0/env/-",
+    "value": { "name": "NO_PROXY", "value": "localhost,127.0.0.1,.svc,.cluster.local,10.0.0.0/8" }
+  },
+  {
+    "op": "add",
+    "path": "/spec/workerGroupSpecs/0/template/spec/containers/0/env/-",
+    "value": { "name": "HF_HUB_DISABLE_XET", "value": "1" }
+  }
+]

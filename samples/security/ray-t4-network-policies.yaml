@@ -1,0 +1,173 @@
+# Untested candidate for the fixed-port, static RayCluster in ray-security.md.
+# Review all existing policies and adapt DNS, operator, and scraper selectors.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ray-learn-default-deny
+  namespace: ray-learn
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress: []
+  egress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ray-t4-internal
+  namespace: ray-learn
+spec:
+  podSelector:
+    matchLabels:
+      ray.io/cluster: ray-t4
+    matchExpressions:
+      - key: ray.io/node-type
+        operator: In
+        values: [head, worker]
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              ray.io/cluster: ray-t4
+            matchExpressions:
+              - key: ray.io/node-type
+                operator: In
+                values: [head, worker]
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 8265
+        - protocol: TCP
+          port: 9001
+          endPort: 9004
+        - protocol: TCP
+          port: 52365
+        - protocol: TCP
+          port: 10010
+          endPort: 10109
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              ray.io/cluster: ray-t4
+            matchExpressions:
+              - key: ray.io/node-type
+                operator: In
+                values: [head, worker]
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 8265
+        - protocol: TCP
+          port: 9001
+          endPort: 9004
+        - protocol: TCP
+          port: 52365
+        - protocol: TCP
+          port: 10010
+          endPort: 10109
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ray-learn-dns
+  namespace: ray-learn
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ray-t4-dashboard-ingress
+  namespace: ray-learn
+spec:
+  podSelector:
+    matchLabels:
+      ray.io/cluster: ray-t4
+      ray.io/node-type: head
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kuberay-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: kuberay-operator
+        - podSelector:
+            matchLabels:
+              ray-submit: ray-t4
+      ports:
+        - protocol: TCP
+          port: 8265
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ray-t4-submitter-egress
+  namespace: ray-learn
+spec:
+  podSelector:
+    matchLabels:
+      ray-submit: ray-t4
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              ray.io/cluster: ray-t4
+              ray.io/node-type: head
+      ports:
+        - protocol: TCP
+          port: 8265
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ray-t4-metrics-ingress
+  namespace: ray-learn
+spec:
+  podSelector:
+    matchLabels:
+      ray.io/cluster: ray-t4
+    matchExpressions:
+      - key: ray.io/node-type
+        operator: In
+        values: [head, worker]
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              rsName: ama-metrics
+      ports:
+        - protocol: TCP
+          port: 8080

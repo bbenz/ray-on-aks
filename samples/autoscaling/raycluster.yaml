@@ -1,0 +1,147 @@
+apiVersion: ray.io/v1
+kind: RayCluster
+metadata:
+  name: ray-scale
+  namespace: ray-scale
+spec:
+  rayVersion: "2.58.0"
+  authOptions:
+    mode: token
+  enableInTreeAutoscaling: true
+  autoscalerOptions:
+    version: v2
+    upscalingMode: Conservative
+    idleTimeoutSeconds: 180
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "512Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+  headGroupSpec:
+    serviceType: ClusterIP
+    rayStartParams:
+      dashboard-host: "0.0.0.0"
+      metrics-export-port: "8080"
+      num-cpus: "0"
+      num-gpus: "0"
+      object-store-memory: "1073741824"
+    template:
+      metadata:
+        annotations:
+          cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+      spec:
+        # The head pod keeps its projected service account token: KubeRay injects
+        # the Ray autoscaler as a sidecar here, and that sidecar calls the
+        # Kubernetes API to add and remove worker pods. Setting
+        # automountServiceAccountToken: false on this pod disables autoscaling.
+        nodeSelector:
+          agentpool: nodepool1
+          kubernetes.io/os: linux
+          kubernetes.io/arch: amd64
+        restartPolicy: Never
+        containers:
+          - name: ray-head
+            image: rayproject/ray:2.58.0-py311-cpu@sha256:5b4128ad47050e80b08a9fac96187e04e7e6dd13abe3f074813818bc86460afe
+            imagePullPolicy: IfNotPresent
+            securityContext:
+              runAsNonRoot: true
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+              seccompProfile:
+                type: RuntimeDefault
+            ports:
+              - name: gcs
+                containerPort: 6379
+              - name: dashboard
+                containerPort: 8265
+              - name: client
+                containerPort: 10001
+              - name: metrics
+                containerPort: 8080
+            env:
+              - name: RAY_DEDUP_LOGS
+                value: "0"
+              - name: RAY_USAGE_STATS_ENABLED
+                value: "0"
+            resources:
+              requests:
+                cpu: "1"
+                memory: "4Gi"
+              limits:
+                cpu: "1"
+                memory: "4Gi"
+            volumeMounts:
+              - name: code
+                mountPath: /home/ray/autoscaling
+                readOnly: true
+              - name: shared-memory
+                mountPath: /dev/shm
+        volumes:
+          - name: code
+            configMap:
+              name: ray-scale-code
+          - name: shared-memory
+            emptyDir:
+              medium: Memory
+              sizeLimit: 2Gi
+  workerGroupSpecs:
+    - groupName: t4
+      replicas: 1
+      minReplicas: 1
+      maxReplicas: 4
+      rayStartParams:
+        metrics-export-port: "8080"
+        num-cpus: "2"
+        num-gpus: "1"
+        object-store-memory: "2147483648"
+      template:
+        spec:
+          # Workers run application code and never call the Kubernetes API.
+          automountServiceAccountToken: false
+          nodeSelector:
+            agentpool: scalet4
+            kubernetes.io/os: linux
+            kubernetes.io/arch: amd64
+          tolerations:
+            - key: sku
+              operator: Equal
+              value: gpu
+              effect: NoSchedule
+          restartPolicy: Never
+          containers:
+            - name: ray-worker
+              image: rayproject/ray:2.58.0-py311-cu128@sha256:38043f7104a969db5bfa49c565ff59acb4ceec73abdb2d4b2ba98b957395db0b
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                runAsNonRoot: true
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+                seccompProfile:
+                  type: RuntimeDefault
+              ports:
+                - name: metrics
+                  containerPort: 8080
+              env:
+                - name: RAY_USAGE_STATS_ENABLED
+                  value: "0"
+              resources:
+                requests:
+                  cpu: "2"
+                  memory: "12Gi"
+                  nvidia.com/gpu: "1"
+                limits:
+                  cpu: "2"
+                  memory: "12Gi"
+                  nvidia.com/gpu: "1"
+              volumeMounts:
+                - name: shared-memory
+                  mountPath: /dev/shm
+          volumes:
+            - name: shared-memory
+              emptyDir:
+                medium: Memory
+                sizeLimit: 3Gi

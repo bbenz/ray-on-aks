@@ -1,0 +1,126 @@
+{
+  "uid": "ray-on-aks",
+  "title": "Ray on AKS",
+  "description": "Ray and GPU signals for the companion Ray on AKS samples. DCGM series come from AKS-managed GPU pools; a driver-only pool created for the autoscaling sample doesn't export them. A healthy scrape is not evidence of successful inference: correlate with RayJob status and job output.",
+  "tags": ["ray", "aks", "kuberay"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 0,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "type": "datasource",
+        "name": "datasource",
+        "label": "Prometheus data source",
+        "query": "prometheus",
+        "hide": 0,
+        "current": {}
+      },
+      {
+        "type": "textbox",
+        "name": "cluster",
+        "label": "AKS cluster name",
+        "description": "Value of the cluster label that Azure Monitor managed Prometheus adds to scraped series.",
+        "query": "",
+        "current": { "text": "", "value": "" },
+        "hide": 0
+      },
+      {
+        "type": "textbox",
+        "name": "namespace",
+        "label": "Ray namespace regex",
+        "query": "ray-learn|ray-scale",
+        "current": { "text": "ray-learn|ray-scale", "value": "ray-learn|ray-scale" },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Ray head and worker scrape health",
+      "description": "1 means the collector scraped the pod's metrics port. It does not mean the Ray node is doing useful work.",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up{namespace=~\"$namespace\",ray_io_cluster!=\"\"}",
+          "legendFormat": "{{ray_io_cluster}} / {{ray_node_type}} / {{pod}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "min": 0, "max": 1, "decimals": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Ray node CPU utilization",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ray_node_cpu_utilization{namespace=~\"$namespace\",ray_io_cluster!=\"\"}",
+          "legendFormat": "{{ray_io_cluster}} / {{ray_node_type}} / {{kubernetes_node}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "GPU utilization reported by DCGM (AKS-managed GPU pools)",
+      "description": "Metric names from the AKS DCGM exporter were lowercase in the validated workspace. Confirm the exact names in your own workspace before you alert on them.",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "dcgm_fi_dev_gpu_util{cluster=~\"$cluster\"}",
+          "legendFormat": "{{instance}} / GPU {{gpu}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "GPU utilization reported by Ray",
+      "description": "Ray's own view of GPU use. Use it when a node pool has no DCGM exporter, and treat the two sources as independent observations.",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "ray_node_gpus_utilization{namespace=~\"$namespace\",ray_node_type=\"worker\"}",
+          "legendFormat": "{{ray_io_cluster}} / {{kubernetes_node}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Ray workers with a healthy metrics scrape",
+      "description": "A scrape-based count, not proof of node readiness or task completion. Correlate with kubectl node/pod state and RayJob status.",
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (ray_io_cluster) (up{namespace=~\"$namespace\",ray_node_type=\"worker\"} == 1)",
+          "legendFormat": "{{ray_io_cluster}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "min": 0, "decimals": 0 }, "overrides": [] },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } }
+    }
+  ]
+}

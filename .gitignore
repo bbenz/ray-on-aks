@@ -1,0 +1,22 @@
+# Local Python tooling
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local run output; never commit cluster output, tokens, or kubeconfig
+out/
+*.log
+*.jsonl
+!tests/fixtures/*.log
+!tests/fixtures/*.jsonl
+kubeconfig
+*.kubeconfig
+raycluster-isolated.yaml
+rayjob-*-secured.yaml
+
+# Editors and OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

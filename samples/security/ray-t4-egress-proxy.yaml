@@ -1,0 +1,28 @@
+# Optional, untested exception. This does not deploy or configure a proxy.
+# The proxy owner must constrain destinations and permit matching ingress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ray-t4-approved-proxy-egress
+  namespace: ray-learn
+spec:
+  podSelector:
+    matchLabels:
+      ray.io/cluster: ray-t4
+    matchExpressions:
+      - key: ray.io/node-type
+        operator: In
+        values: [head, worker]
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ray-egress
+          podSelector:
+            matchLabels:
+              app: ray-egress-proxy
+      ports:
+        - protocol: TCP
+          port: 3128

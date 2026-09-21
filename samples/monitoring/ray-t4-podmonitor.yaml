@@ -1,0 +1,30 @@
+apiVersion: azmonitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: ray-t4
+  namespace: ray-learn
+spec:
+  labelLimit: 63
+  labelNameLengthLimit: 511
+  labelValueLengthLimit: 1023
+  namespaceSelector:
+    matchNames:
+      - ray-learn
+  selector:
+    matchLabels:
+      ray.io/cluster: ray-t4
+    matchExpressions:
+      - key: ray.io/node-type
+        operator: In
+        values: [head, worker]
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_ray_io_cluster]
+          targetLabel: ray_io_cluster
+        - sourceLabels: [__meta_kubernetes_pod_label_ray_io_node_type]
+          targetLabel: ray_node_type
+        - sourceLabels: [__meta_kubernetes_pod_node_name]
+          targetLabel: kubernetes_node

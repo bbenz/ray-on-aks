@@ -67,12 +67,40 @@ def test_mutating_scripts_support_whatif(scripts):
 def test_scripts_fail_on_native_command_errors(scripts):
     """PowerShell doesn't stop on a nonzero exit code from az or kubectl."""
     common = (SCRIPTS / "Common.ps1").read_text(encoding="utf-8")
-    assert "$LASTEXITCODE -ne 0" in common, "Common.ps1 doesn't check native exit codes."
+    assert "$exitCode -ne 0" in common, "Common.ps1 doesn't check native exit codes."
     for path in scripts:
         if path.name == "Common.ps1":
             continue
         text = path.read_text(encoding="utf-8")
         assert "Common.ps1" in text, f"{path.name} doesn't dot-source the checked-execution helpers."
+
+
+def test_invoke_checked_separates_stderr_and_fails_loudly():
+    """A tool warning on stderr must not end up inside captured YAML or JSON,
+    and a nonzero exit must raise instead of returning partial output."""
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        pytest.skip("PowerShell 7 isn't installed.")
+    script = f"""
+. '{SCRIPTS / "Common.ps1"}'
+$py = (Get-Command python -ErrorAction SilentlyContinue).Source
+if (-not $py) {{ 'SKIP'; exit 0 }}
+$text = Invoke-Checked -FilePath $py -Arguments @('-c', 'import sys; sys.stderr.write("noise\\n"); print("apiVersion: v1")') -WarningAction SilentlyContinue
+if ($text -ne 'apiVersion: v1') {{ "STDOUT_POLLUTED:$text"; exit 1 }}
+try {{
+    Invoke-Checked -FilePath $py -Arguments @('-c', 'import sys; sys.exit(3)') -WarningAction SilentlyContinue | Out-Null
+    'NO_THROW_ON_FAILURE'; exit 1
+}} catch {{ }}
+'OK'
+"""
+    result = subprocess.run(
+        [pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True, text=True, timeout=180,
+    )
+    output = result.stdout.strip()
+    if output == "SKIP":
+        pytest.skip("python isn't available to the PowerShell session.")
+    assert result.returncode == 0 and output.endswith("OK"), f"{output}{result.stderr}"
 
 
 def test_scripts_carry_no_environment_specific_identifiers(scripts):

@@ -34,17 +34,29 @@ function Assert-Tool {
 function Invoke-Checked {
     <#
         Runs a native command, fails on a nonzero exit code, and returns its
-        output. Use -AsJson to parse stdout as JSON.
+        standard output. Standard error is captured separately so a warning
+        can't corrupt captured YAML or JSON. Use -AsJson to parse stdout.
     #>
     param(
         [Parameter(Mandatory)][string]$FilePath,
         [Parameter(Mandatory)][string[]]$Arguments,
         [switch]$AsJson
     )
-    $output = & $FilePath @Arguments 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        $text = ($output | Out-String).Trim()
-        throw "$FilePath $($Arguments -join ' ') failed with exit code ${LASTEXITCODE}: $text"
+    $errorPath = [IO.Path]::GetTempFileName()
+    try {
+        $output = & $FilePath @Arguments 2>$errorPath
+        $exitCode = $LASTEXITCODE
+        $stderr = (Get-Content -LiteralPath $errorPath -Raw -ErrorAction SilentlyContinue)
+    }
+    finally {
+        Remove-Item -LiteralPath $errorPath -Force -ErrorAction SilentlyContinue
+    }
+    if ($exitCode -ne 0) {
+        $detail = ((($output | Out-String) + "`n" + $stderr)).Trim()
+        throw "$FilePath $($Arguments -join ' ') failed with exit code ${exitCode}: $detail"
+    }
+    if ($stderr -and -not [string]::IsNullOrWhiteSpace($stderr)) {
+        foreach ($line in ($stderr.Trim() -split "`r?`n")) { Write-Warning $line }
     }
     $text = ($output | Out-String)
     if (-not $AsJson) { return $text.TrimEnd() }

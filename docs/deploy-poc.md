@@ -80,7 +80,7 @@ evidence at the end, not just a green terminal.
 | 6. Prove inference | same script | Four records, pinned revision, copied locally |
 | 7. Isolation | `scripts/Protect-RayCluster.ps1 -WithProxy -WithTokenAuth`, then `Invoke-RayQuickstartJobs.ps1 -Secured -NameSuffix secured` | Both jobs still succeed **and** the probes deny what should be denied |
 | 8. Monitoring | `samples/monitoring/ray-t4-podmonitor.yaml` | Head and worker scrape targets report `up=1` |
-| 9. Autoscaling | `samples/autoscaling` in its own namespace and pool, with `nvidia-device-plugin.yaml` | Observer records 1 -> N -> 1; Azure agrees on the VM count |
+| 9. Autoscaling | `samples/autoscaling` in its own namespace and pool, with `nvidia-device-plugin.yaml` | Observer records 1 -> N -> 1; Azure agrees on the VM count (read `az aks nodepool show` or the scale set's capacity: `az aks nodepool list` and `az aks show` lagged at the peak count) |
 | 10. Clean up | `scripts/Remove-RayQuickstart.ps1 -RemoveGpuPool` | `az aks nodepool list` no longer shows the pool |
 
 Run every mutating script once with `-WhatIf` first.

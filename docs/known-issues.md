@@ -266,3 +266,24 @@ managed Prometheus left about 1.3 CPUs.
 
 **What to do.** Use a separate lab cluster, as the article says, or add a
 second CPU node first.
+
+### Azure reports the peak node count after scale-in
+
+**Symptom.** After the cluster autoscaler removed three GPU nodes, `az aks
+nodepool list` and `az aks show` still reported `count: 4` for the pool, minutes
+later.
+
+**What to do.** Confirm scale-in with `az aks nodepool show`, which reported 1,
+or the VM scale set's `sku.capacity`, and with `kubectl get nodes`.
+
+### Idle scale-in shows up as "Recent failures"
+
+**Symptom.** After a successful burst, `ray status` lists every removed worker
+under **Recent failures** as `NodeTerminated`.
+
+**Cause.** That's how Ray's v2 autoscaler reports nodes it terminated, including
+its own idle removals. The sidecar log shows the normal sequence:
+`RAY_RUNNING->RAY_STOP_REQUESTED->RAY_STOPPED->TERMINATING->TERMINATED`.
+
+**What to do.** Check the autoscaler log before treating those entries as
+crashes.

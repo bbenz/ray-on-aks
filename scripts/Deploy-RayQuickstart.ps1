@@ -39,7 +39,7 @@ if ($Spot) {
     $yaml = Invoke-Checked -FilePath 'kubectl' -Arguments @(
         'patch', '--local', '-f', $manifest, '--type', 'json', '--patch-file', $patch, '-o', 'yaml'
     )
-    Set-Content -LiteralPath $rendered -Value $yaml -Encoding utf8
+    Set-Content -LiteralPath $rendered -Value $yaml -Encoding utf8 -WhatIf:$false
     $manifest = $rendered
 }
 

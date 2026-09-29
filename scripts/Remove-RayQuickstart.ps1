@@ -55,17 +55,20 @@ if ($RemoveGpuPool) {
     Assert-Tool -Name az
     $common = @('--subscription', $Subscription)
     if (-not $Subscription) { $common = @() }
+    $deleted = $false
     if ($PSCmdlet.ShouldProcess("$ClusterName/$Pool", 'Delete the GPU node pool')) {
         Write-Step "Deleting node pool '$Pool'. This is what stops the GPU VM charge."
         Invoke-Checked -FilePath 'az' -Arguments (@(
                 'aks', 'nodepool', 'delete', '--resource-group', $ResourceGroup,
                 '--cluster-name', $ClusterName, '--name', $Pool, '--output', 'none') + $common) | Out-Null
+        $deleted = $true
     }
     $pools = Invoke-Checked -FilePath 'az' -AsJson -Arguments (@(
             'aks', 'nodepool', 'list', '--resource-group', $ResourceGroup,
             '--cluster-name', $ClusterName, '--output', 'json') + $common)
     $pools | Select-Object name, count, vmSize, provisioningState | Format-Table
-    if (@($pools | Where-Object name -eq $Pool).Count -gt 0) {
+    # Under -WhatIf nothing was deleted, so the pool is expected to still be listed.
+    if ($deleted -and @($pools | Where-Object name -eq $Pool).Count -gt 0) {
         throw "Node pool '$Pool' still exists. Confirm the deletion before assuming charges stopped."
     }
 }

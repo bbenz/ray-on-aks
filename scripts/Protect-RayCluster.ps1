@@ -51,7 +51,8 @@ $current = $source
 foreach ($patch in $patches) {
     $yaml = Invoke-Checked -FilePath 'kubectl' -Arguments @(
         'patch', '--local', '-f', $current, '--type', 'json', '--patch-file', $patch, '-o', 'yaml')
-    Set-Content -LiteralPath $rendered -Value $yaml -Encoding utf8
+    # Rendering is local and is what -WhatIf lets you inspect, so it always runs.
+    Set-Content -LiteralPath $rendered -Value $yaml -Encoding utf8 -WhatIf:$false
     $current = $rendered
 }
 Write-Step "Rendered: $rendered"

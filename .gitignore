@@ -13,6 +13,7 @@ out/
 kubeconfig
 *.kubeconfig
 raycluster-isolated.yaml
+raycluster-isolated-auth.yaml
 rayjob-*-secured.yaml
 
 # Editors and OS

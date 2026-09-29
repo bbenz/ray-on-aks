@@ -37,6 +37,23 @@ Assert-Tool -Name az, kubectl
 $common = @('--subscription', $Subscription)
 if (-not $Subscription) { $common = @() }
 
+# --gpu-driver-mode arrived in aks-preview 22.0.0b6; older versions reject the
+# whole command with "unrecognized arguments".
+$minimumPreview = '22.0.0b6'
+$installedPreview = (& az extension show --name aks-preview --query version --output tsv 2>$null | Out-String).Trim()
+if (-not $installedPreview -or (Compare-ExtensionVersion $installedPreview $minimumPreview) -lt 0) {
+    $found = if ($installedPreview) { "aks-preview $installedPreview is installed" } else { 'aks-preview is not installed' }
+    throw "$found; --gpu-driver-mode needs $minimumPreview or later. Run: az extension add --upgrade --name aks-preview"
+}
+$feature = Invoke-Checked -FilePath 'az' -Arguments (@(
+        'feature', 'show', '--namespace', 'Microsoft.ContainerService', '--name', 'ManagedGPUExperiencePreview',
+        '--query', 'properties.state', '--output', 'tsv'
+    ) + $common)
+if ($feature -ne 'Registered') {
+    throw ("The ManagedGPUExperiencePreview feature is '$feature'. Run: az feature register --namespace Microsoft.ContainerService " +
+        "--name ManagedGPUExperiencePreview, wait for Registered, then az provider register --namespace Microsoft.ContainerService")
+}
+
 Write-Step "Checking the target cluster."
 $cluster = Invoke-Checked -FilePath 'az' -AsJson -Arguments (@(
         'aks', 'show', '--resource-group', $ResourceGroup, '--name', $ClusterName, '--output', 'json'
@@ -80,7 +97,8 @@ foreach ($row in $rows) {
     }
 }
 if ($rows.Count -eq 0) {
-    Write-Warning "No quota row matched '$quotaName' or 'cores'; the creation call still enforces quota."
+    Write-Warning ("No quota row matched '$quotaName' or 'cores'. An empty 'az vm list-usage' result usually means Microsoft.Compute " +
+        "isn't registered in this subscription: az provider register --namespace Microsoft.Compute --wait. The creation call still enforces quota.")
 }
 
 $arguments = @(

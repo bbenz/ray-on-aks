@@ -15,6 +15,10 @@ from conftest import (
 
 DIGEST = re.compile(r"^(?P<repo>[^:@]+):(?P<tag>[^@]+)@sha256:[0-9a-f]{64}$")
 
+# Node-level agents that need root to serve a socket in a kubelet host directory.
+# They still drop every capability and can't escalate.
+NODE_AGENTS = {("nvidia-device-plugin.yaml", "nvidia-device-plugin-ctr")}
+
 
 def pod_specs(document):
     """Every pod spec in a document, whatever resource kind wraps it."""
@@ -132,8 +136,28 @@ def test_workload_pods_drop_capabilities_and_run_as_non_root(manifest_paths):
                     assert security, f"{path.name}: {container['name']} has no securityContext."
                     assert security.get("allowPrivilegeEscalation") is False
                     assert security.get("capabilities", {}).get("drop") == ["ALL"]
+                    if (path.name, container["name"]) in NODE_AGENTS:
+                        continue
                     non_root = security.get("runAsNonRoot", spec.get("securityContext", {}).get("runAsNonRoot"))
                     assert non_root is True, f"{path.name}: {container['name']} doesn't require a non-root user."
+
+
+def test_self_managed_device_plugin_stays_off_managed_gpu_nodes():
+    """The upstream DaemonSet tolerates the GPU taint and has no selector, so it
+    would also land on AKS-managed GPU nodes that already run a device plugin."""
+    documents = load_yaml_documents(SAMPLES / "autoscaling" / "nvidia-device-plugin.yaml")
+    daemonsets = [document for document in documents if document["kind"] == "DaemonSet"]
+    assert len(daemonsets) == 1
+    spec = daemonsets[0]["spec"]["template"]["spec"]
+    assert spec.get("nodeSelector") == {"kubernetes.azure.com/agentpool": "scalet4"}
+
+    cluster = load_yaml_documents(SAMPLES / "autoscaling" / "raycluster.yaml")[0]
+    worker = cluster["spec"]["workerGroupSpecs"][0]["template"]["spec"]
+    worker_pool = worker["nodeSelector"].get("agentpool") or worker["nodeSelector"].get("kubernetes.azure.com/agentpool")
+    assert worker_pool == "scalet4", "The device plugin and the autoscaling workers must target the same pool."
+    assert {(t["key"], t.get("value"), t["effect"]) for t in spec["tolerations"]} >= {
+        (t["key"], t.get("value"), t["effect"]) for t in worker["tolerations"]
+    }, "The device plugin must tolerate every taint the autoscaling workers tolerate."
 
 
 def test_service_account_tokens_are_mounted_only_where_autoscaling_needs_them(manifest_paths):

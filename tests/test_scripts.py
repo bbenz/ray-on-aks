@@ -128,6 +128,14 @@ def test_cleanup_script_explains_what_still_costs_money():
     assert "bill" in text.lower(), "Cleanup should say plainly that GPU nodes keep billing."
 
 
+def test_cleanup_whatif_does_not_fail_on_the_pool_it_didnt_delete():
+    """Under -WhatIf the pool is still listed afterwards; only a real deletion
+    that left the pool behind is an error."""
+    text = (SCRIPTS / "Remove-RayQuickstart.ps1").read_text(encoding="utf-8")
+    assert "$deleted = $true" in text
+    assert re.search(r"if \(\$deleted -and @\(\$pools \| Where-Object name -eq \$Pool\)\.Count -gt 0\)", text)
+
+
 def test_gpu_pool_script_waits_for_allocatable_capacity():
     """A Ready node is not a usable GPU: the device plugin registers separately."""
     common = (SCRIPTS / "Common.ps1").read_text(encoding="utf-8")
@@ -136,3 +144,109 @@ def test_gpu_pool_script_waits_for_allocatable_capacity():
         assert "Assert-AllocatableGpu" in (SCRIPTS / name).read_text(encoding="utf-8"), (
             f"{name} creates or uses GPU capacity without waiting for it to register."
         )
+
+
+def run_pwsh(script):
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        pytest.skip("PowerShell 7 isn't installed.")
+    return subprocess.run(
+        [pwsh, "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True, text=True, timeout=180,
+    )
+
+
+def test_status_fields_are_read_through_the_strict_mode_helper(scripts):
+    """Strict mode throws on a property that doesn't exist yet. A new RayJob has
+    no status.jobStatus, and a new GPU node has no allocatable nvidia.com/gpu, so
+    direct reads crashed the scripts in exactly the states they wait through."""
+    for path in scripts:
+        text = path.read_text(encoding="utf-8")
+        assert ".status.jobStatus" not in text, f"{path.name} reads RayJob status directly."
+        assert ".status.jobDeploymentStatus" not in text, f"{path.name} reads RayJob status directly."
+        assert ".allocatable.'nvidia.com/gpu'" not in text, f"{path.name} reads node GPU capacity directly."
+
+
+def test_property_helper_returns_null_for_fields_not_written_yet():
+    script = f"""
+. '{SCRIPTS / "Common.ps1"}'
+$new = '{{"metadata":{{"name":"ray-gpu-check"}}}}' | ConvertFrom-Json
+$done = '{{"status":{{"jobStatus":"SUCCEEDED","allocatable":{{"nvidia.com/gpu":"1"}}}}}}' | ConvertFrom-Json
+if ($null -ne (Get-PropertyValue $new @('status', 'jobStatus'))) {{ 'EXPECTED_NULL'; exit 1 }}
+if ((Get-PropertyValue $done @('status', 'jobStatus')) -ne 'SUCCEEDED') {{ 'WRONG_VALUE'; exit 1 }}
+if ((Get-PropertyValue $done @('status', 'allocatable', 'nvidia.com/gpu')) -ne '1') {{ 'WRONG_GPU'; exit 1 }}
+'OK'
+"""
+    result = run_pwsh(script)
+    assert result.returncode == 0 and result.stdout.strip().endswith("OK"), f"{result.stdout}{result.stderr}"
+
+
+def test_checked_helper_ignores_whatif_for_its_own_temp_files():
+    """Under -WhatIf the stderr redirect and temp-file cleanup were skipped:
+    warnings vanished, temp files leaked, and every call printed noise."""
+    script = f"""
+$WhatIfPreference = $true
+. '{SCRIPTS / "Common.ps1"}'
+$py = (Get-Command python -ErrorAction SilentlyContinue).Source
+if (-not $py) {{ 'SKIP'; exit 0 }}
+$text = Invoke-Checked -FilePath $py -Arguments @('-c', 'print(42)')
+"RESULT:$text"
+"""
+    result = run_pwsh(script)
+    if result.stdout.strip() == "SKIP":
+        pytest.skip("python isn't available to the PowerShell session.")
+    assert "RESULT:42" in result.stdout, f"{result.stdout}{result.stderr}"
+    assert "What if" not in result.stdout, f"Invoke-Checked still honors -WhatIf internally: {result.stdout}"
+
+
+def test_protect_script_renders_the_manifest_even_under_whatif():
+    """The patches chain through the rendered file, so skipping the write under
+    -WhatIf made the second patch fail on a file that was never created."""
+    text = (SCRIPTS / "Protect-RayCluster.ps1").read_text(encoding="utf-8")
+    assert re.search(r"Set-Content -LiteralPath \$rendered .*-WhatIf:\$false", text)
+
+
+def test_results_copy_uses_a_relative_destination():
+    """kubectl cp reads C:\\... as pod:path, so an absolute Windows path fails."""
+    text = (SCRIPTS / "Invoke-RayQuickstartJobs.ps1").read_text(encoding="utf-8")
+    assert "Push-Location -LiteralPath $OutputDirectory" in text
+    copy = re.search(r"'cp', '-c', 'ray-head', \"\$\{head\}:/tmp/ray-inference-results.jsonl\", (\$\w+)\)", text)
+    assert copy and copy[1] == "$fileName", "Copy results to a relative file name inside the output directory."
+
+
+def test_install_script_distinguishes_leftover_crds_from_a_running_operator():
+    """helm uninstall keeps CRDs, and the docs say not to delete them, so CRDs
+    alone mustn't block a reinstall. A running operator without a release must."""
+    text = (SCRIPTS / "Install-KubeRay.ps1").read_text(encoding="utf-8")
+    assert "kuberay[/-]operator" in text, "Look for a running operator, not just the CRDs."
+    assert "already running without a Helm release" in text
+
+
+def test_name_suffix_does_not_need_a_leading_dash():
+    """Through 'pwsh -File', a value like -sec binds as the -Secured switch."""
+    text = (SCRIPTS / "Invoke-RayQuickstartJobs.ps1").read_text(encoding="utf-8")
+    assert "$NameSuffix = \"-$NameSuffix\"" in text
+
+
+def test_gpu_pool_script_checks_the_aks_preview_version():
+    """--gpu-driver-mode only exists in aks-preview 22.0.0b6 and later."""
+    text = (SCRIPTS / "Add-RayGpuNodePool.ps1").read_text(encoding="utf-8")
+    assert "--gpu-driver-mode" in text
+    assert "22.0.0b6" in text, "State and check the aks-preview version the flag needs."
+
+
+def test_extension_versions_compare_betas_below_releases():
+    script = f"""
+. '{SCRIPTS / "Common.ps1"}'
+$cases = @(
+    @('21.0.0b7', '22.0.0b6', -1), @('22.0.0b6', '22.0.0b6', 0), @('22.0.0b9', '22.0.0b6', 1),
+    @('22.0.0', '22.0.0b9', 1), @('22.1.0b1', '22.0.0', 1), @('19.0.0b29', '22.0.0b6', -1)
+)
+foreach ($case in $cases) {{
+    $actual = Compare-ExtensionVersion $case[0] $case[1]
+    if ($actual -ne $case[2]) {{ "MISMATCH $($case[0]) vs $($case[1]): $actual"; exit 1 }}
+}}
+'OK'
+"""
+    result = run_pwsh(script)
+    assert result.returncode == 0 and result.stdout.strip().endswith("OK"), f"{result.stdout}{result.stderr}"

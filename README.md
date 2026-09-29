@@ -31,9 +31,15 @@ and a real Ray autoscaling exercise.
 ## Prerequisites
 
 - An AKS cluster with a schedulable Linux CPU pool, and quota for one
-  `Standard_NC4as_T4_v3`. Quota isn't capacity.
-- Azure CLI with the `aks-preview` extension for AKS-managed GPU node pools,
-  `kubectl`, Helm 3, and PowerShell 7.
+  `Standard_NC4as_T4_v3`. Quota isn't capacity. On a subscription that has never
+  hosted VMs, register `Microsoft.Compute`, `Microsoft.Network`, and
+  `Microsoft.ContainerService` first.
+- For the security samples, a cluster that enforces NetworkPolicy, such as Azure
+  CNI Overlay with the Cilium dataplane.
+- Azure CLI with the `aks-preview` extension **22.0.0b6 or later** for
+  AKS-managed GPU node pools (`--gpu-driver-mode`), the
+  `ManagedGPUExperiencePreview` feature registered, `kubectl`, Helm 3 (Helm 4.3
+  also renders the pinned chart), and PowerShell 7.
 - Permission to install the KubeRay operator, or an existing one you're allowed
   to use.
 
@@ -54,7 +60,8 @@ cd ray-on-aks
 ./scripts/Invoke-RayQuickstartJobs.ps1 -OutputDirectory ./out
 ```
 
-Every state-changing script supports `-WhatIf`. When you're done:
+Every state-changing script supports `-WhatIf`. To run the jobs again on the same
+cluster, add `-NameSuffix <text>`; RayJob names must be unique. When you're done:
 
 ```powershell
 ./scripts/Remove-RayQuickstart.ps1 -RemoveGpuPool -ResourceGroup <rg> -ClusterName <aks>
@@ -90,13 +97,16 @@ self-consistent.
 
 ## What's been run for real
 
-A live AKS POC exercised the GPU check, batch inference, the isolation and
-authentication controls, managed metrics, and a four-worker `1 -> 4 -> 1`
-autoscaling cycle. It also surfaced several failures that are fixed here, and
-some that remain open.
-[`docs/validation-status.md`](docs/validation-status.md) lists both, with the
-limits of that evidence. [`docs/known-issues.md`](docs/known-issues.md) explains
-the failures worth knowing about before you hit them.
+Two live AKS POCs have exercised this repository. The first (September 18) ran
+the GPU check, batch inference, the isolation and authentication controls,
+managed metrics, and a four-worker `1 -> 4 -> 1` autoscaling cycle, driven
+through AKS Run Command. The second (September 29) ran everything again from a
+workstation with direct `kubectl` and Helm access, including **every script in
+`scripts/` for the first time**, on a fresh subscription. That run found and
+fixed several script bugs that only appear against a real cluster.
+[`docs/validation-status.md`](docs/validation-status.md) lists what passed and
+the limits of that evidence. [`docs/known-issues.md`](docs/known-issues.md)
+explains the failures worth knowing about before you hit them.
 
 ## Contributing
 

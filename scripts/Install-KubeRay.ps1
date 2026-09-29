@@ -38,7 +38,18 @@ if ($existing.Count -gt 0) {
 
 $crds = & kubectl @(@('api-resources', '--api-group=ray.io', '-o', 'name') + @(if ($Context) { @('--context', $Context) } else { @() })) 2>$null
 if (-not [string]::IsNullOrWhiteSpace(($crds | Out-String))) {
-    throw "ray.io resource types already exist without a Helm release. Inspect that installation before adding another."
+    # Helm never deletes CRDs, so 'helm uninstall' leaves them behind. That's
+    # only a conflict if an operator installed some other way is still running.
+    $deployments = Invoke-Kubectl -Context $Context -AsJson -Arguments @('get', 'deployments', '--all-namespaces', '-o', 'json')
+    $operators = @($deployments.items | Where-Object {
+            @($_.spec.template.spec.containers | ForEach-Object { $_.image }) -match 'kuberay[/-]operator'
+        })
+    if ($operators.Count -gt 0) {
+        $where = ($operators | ForEach-Object { "$($_.metadata.namespace)/$($_.metadata.name)" }) -join ', '
+        throw "A KubeRay operator is already running without a Helm release ($where). Inspect that installation before adding another."
+    }
+    Write-Warning ("ray.io CRDs exist but no KubeRay operator is running, usually left by an earlier 'helm uninstall'. " +
+        "Helm reuses existing CRDs and doesn't upgrade them: if they came from a KubeRay version other than $Version, update them before relying on newer fields.")
 }
 
 if (-not $PSCmdlet.ShouldProcess($contextName, "Install kuberay-operator $Version into $Namespace")) { return }

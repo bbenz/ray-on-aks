@@ -10,8 +10,14 @@
 
     Use -Secured when the cluster is protected by the network policies in
     samples/security: submitter pods then need the ray-submit label.
+
+    RayJob names must be unique. To run the jobs again against the same
+    cluster, pass -NameSuffix (for example, -NameSuffix r2 submits
+    ray-gpu-check-r2 and ray-inference-r2).
 .EXAMPLE
     .\Invoke-RayQuickstartJobs.ps1 -OutputDirectory .\out
+.EXAMPLE
+    .\Invoke-RayQuickstartJobs.ps1 -Secured -NameSuffix secured
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -27,8 +33,10 @@ param(
 . (Join-Path $PSScriptRoot 'Common.ps1')
 Assert-Tool -Name kubectl
 
+# A leading '-' is optional: '-sec' passed through 'pwsh -File' binds as -Secured.
+if ($NameSuffix -and -not $NameSuffix.StartsWith('-')) { $NameSuffix = "-$NameSuffix" }
 if ($NameSuffix -and $NameSuffix -notmatch '^-[a-z0-9]([-a-z0-9]{0,30}[a-z0-9])?$') {
-    throw "NameSuffix must start with '-' and stay DNS-compatible."
+    throw "NameSuffix must be lowercase letters, digits, and '-', so the RayJob names stay DNS-compatible."
 }
 
 $quickstart = Get-SamplePath 'quickstart'
@@ -57,13 +65,16 @@ function Submit-Job {
     $previous = ''
     while ((Get-Date) -lt $deadline) {
         $job = Invoke-Kubectl -Context $Context -AsJson -Arguments @('-n', $Namespace, 'get', 'rayjob', $JobName, '-o', 'json')
-        $status = "$($job.status.jobStatus)/$($job.status.jobDeploymentStatus)"
+        # A new RayJob has no status fields until KubeRay reconciles it.
+        $jobStatus = Get-PropertyValue $job @('status', 'jobStatus')
+        $deploymentStatus = Get-PropertyValue $job @('status', 'jobDeploymentStatus')
+        $status = "$jobStatus/$deploymentStatus"
         if ($status -ne $previous) { Write-Host "  $JobName : $status"; $previous = $status }
-        if ($job.status.jobStatus -in @('FAILED', 'STOPPED') -or $job.status.jobDeploymentStatus -eq 'Failed') {
+        if ($jobStatus -in @('FAILED', 'STOPPED') -or $deploymentStatus -eq 'Failed') {
             Invoke-Kubectl -Context $Context -Arguments @('-n', $Namespace, 'logs', "-l", "job-name=$JobName", '--all-containers=true', '--tail=-1')
             throw "RayJob '$JobName' failed. Inspect the logs above and the RayJob status; don't rerun over the evidence."
         }
-        if ($job.status.jobStatus -eq 'SUCCEEDED') {
+        if ($jobStatus -eq 'SUCCEEDED') {
             return (Invoke-Kubectl -Context $Context -Arguments @(
                     '-n', $Namespace, 'logs', "-l", "job-name=$JobName", '--all-containers=true', '--tail=-1'))
         }
@@ -78,6 +89,7 @@ if (-not (Test-KubeObject -Kind raycluster -Name 'ray-t4' -Namespace $Namespace 
 if (-not $PSCmdlet.ShouldProcess("$Namespace/ray-t4", 'Submit the quickstart RayJobs')) { return }
 
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+$OutputDirectory = (Resolve-Path -LiteralPath $OutputDirectory).Path
 
 $logs = Submit-Job -File 'rayjob-gpu-check.yaml' -JobName "ray-gpu-check$NameSuffix"
 $gpuLine = @($logs -split "`n" | Where-Object { $_ -match '"tensor_sum"' }) | Select-Object -Last 1
@@ -94,10 +106,19 @@ $head = Invoke-Kubectl -Context $Context -Arguments @(
     '-o', 'jsonpath={.items[0].metadata.name}')
 if (-not $head) { throw 'No Ray head pod was found; the results file could not be copied.' }
 
-$destination = Join-Path $OutputDirectory "ray-inference-results$NameSuffix.jsonl"
+$fileName = "ray-inference-results$NameSuffix.jsonl"
+$destination = Join-Path $OutputDirectory $fileName
 Write-Step "Copying results from $head to $destination."
-Invoke-Kubectl -Context $Context -Arguments @(
-    '-n', $Namespace, 'cp', '-c', 'ray-head', "${head}:/tmp/ray-inference-results.jsonl", $destination) | Out-Null
+# kubectl cp reads a Windows drive-letter path (C:\...) as pod:path and fails,
+# so copy into the output directory by relative file name.
+Push-Location -LiteralPath $OutputDirectory
+try {
+    Invoke-Kubectl -Context $Context -Arguments @(
+        '-n', $Namespace, 'cp', '-c', 'ray-head', "${head}:/tmp/ray-inference-results.jsonl", $fileName) | Out-Null
+}
+finally {
+    Pop-Location
+}
 
 $records = @(Get-Content -LiteralPath $destination | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json })
 if ($records.Count -ne 4) { throw "Expected four inference records; found $($records.Count)." }

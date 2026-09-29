@@ -37,7 +37,7 @@ Spot GPU nodes also need `samples/quickstart/spot-worker.patch.json`.
 | Pin ports before creating pods | `samples/security/ray-t4-fixed-ports.patch.json` |
 | Apply scoped network isolation | `samples/security/ray-t4-network-policies.yaml` |
 | Label the RayJob submitter | `samples/security/rayjob-submitter-label.patch.json` |
-| Plan downloads | `samples/security/ray-t4-egress-proxy.yaml`, `egress-proxy.yaml` |
+| Plan downloads | `samples/security/ray-t4-egress-proxy.yaml`, `egress-proxy.yaml`, `ray-t4-token-auth-proxy.patch.json` |
 | Add token authentication | `samples/security/ray-t4-token-auth-proxy.patch.json` |
 | Validate allowed and denied paths | `samples/security/check_ray_auth.py`, `check_proxy.py`, `security_probe.py`, `security-probe-job.yaml` |
 | Whole sequence | `scripts/Protect-RayCluster.ps1` |
@@ -53,6 +53,7 @@ Spot GPU nodes also need `samples/quickstart/spot-worker.patch.json`.
 
 | Section | Samples |
 | --- | --- |
+| Prepare a separate GPU pool | `samples/autoscaling/nvidia-device-plugin.yaml` |
 | Configure worker autoscaling | `samples/autoscaling/raycluster.yaml` |
 | Submit and observe a burst | `samples/autoscaling/burst.py`, `worker-runtime-env.json` |
 | Observe node and worker counts | `samples/autoscaling/observe_scaling.py`, `scaling-observer.yaml` |
@@ -65,10 +66,12 @@ them.
 
 | File | Why it's here |
 | --- | --- |
-| `samples/security/egress-proxy.yaml` | The article's policy allows reaching a proxy but deliberately doesn't deploy one. This is a working example of what it points at. |
-| `samples/security/ray-t4-token-auth-proxy.patch.json` | Applies the article's token-auth and proxy settings as a patch instead of a manual edit. |
-| `samples/security/rayjob-submitter-label.patch.json` | Applies the submitter label the article asks readers to merge by hand. |
-| `samples/security/check_*.py`, `security_probe.py` | The article says to test allowed and denied paths; these are the tests that were run. |
+| `samples/security/check_*.py`, `security_probe.py`, `security-probe-job.yaml` | The article says to test allowed and denied paths; these are the tests that were run. |
+| `samples/security/rayjob-submitter-label.patch.json` | Applies the submitter label the article asks readers to merge by hand. The article also carries it. |
 | `samples/autoscaling/observe_scaling.py`, `scaling-observer.yaml` | Records Ready node and worker counts over time, rather than trusting desired replicas. |
 | `samples/autoscaling/verify_scaling.py` | Checks a finished run against the sample's own pins. |
 | `samples/monitoring/ray-on-aks-dashboard.json` | The article describes the panels; this is an importable dashboard. |
+
+`samples/security/egress-proxy.yaml` and `ray-t4-token-auth-proxy.patch.json`
+used to be repository-only. The security article now uses them as its working
+development download path, so they're mirrored into the article samples.

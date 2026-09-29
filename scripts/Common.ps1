@@ -42,6 +42,10 @@ function Invoke-Checked {
         [Parameter(Mandatory)][string[]]$Arguments,
         [switch]$AsJson
     )
+    # Callers gate state changes with ShouldProcess. Under -WhatIf, the stderr
+    # redirection and temp-file cleanup below would otherwise be skipped too,
+    # which drops warnings, leaks temp files, and prints misleading noise.
+    $WhatIfPreference = $false
     $errorPath = [IO.Path]::GetTempFileName()
     try {
         $output = & $FilePath @Arguments 2>$errorPath
@@ -56,7 +60,7 @@ function Invoke-Checked {
         throw "$FilePath $($Arguments -join ' ') failed with exit code ${exitCode}: $detail"
     }
     if ($stderr -and -not [string]::IsNullOrWhiteSpace($stderr)) {
-        foreach ($line in ($stderr.Trim() -split "`r?`n")) { Write-Warning $line }
+        foreach ($line in ($stderr.Trim() -split "`r?`n")) { Write-Warning ($line -replace '^WARNING:[ ]*', '') }
     }
     $text = ($output | Out-String)
     if (-not $AsJson) { return $text.TrimEnd() }
@@ -105,6 +109,51 @@ function Test-KubeObject {
     return -not [string]::IsNullOrWhiteSpace(($output | Out-String))
 }
 
+function Compare-ExtensionVersion {
+    <#
+        Compares Azure CLI extension versions such as 22.0.0b6. Returns -1, 0,
+        or 1. A release (22.0.0) sorts after its betas (22.0.0b9).
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Left,
+        [Parameter(Mandatory)][string]$Right
+    )
+    $parse = {
+        param([string]$Text)
+        if ($Text -notmatch '^(\d+)\.(\d+)\.(\d+)(?:b(\d+))?$') { throw "Unrecognized extension version: $Text" }
+        $beta = if ($Matches[4]) { [long]$Matches[4] } else { [long]::MaxValue }
+        return @([long]$Matches[1], [long]$Matches[2], [long]$Matches[3], $beta)
+    }
+    $a = & $parse $Left
+    $b = & $parse $Right
+    for ($i = 0; $i -lt 4; $i++) {
+        if ($a[$i] -lt $b[$i]) { return -1 }
+        if ($a[$i] -gt $b[$i]) { return 1 }
+    }
+    return 0
+}
+
+function Get-PropertyValue {
+    <#
+        Reads a property path that might not exist yet, such as a status field a
+        controller hasn't written. Strict mode throws on the first missing
+        property, so read those fields through this helper and treat $null as
+        "not reported yet".
+    #>
+    param(
+        $InputObject,
+        [Parameter(Mandatory)][string[]]$Path
+    )
+    $current = $InputObject
+    foreach ($name in $Path) {
+        if ($null -eq $current) { return $null }
+        $property = $current.PSObject.Properties[$name]
+        if (-not $property) { return $null }
+        $current = $property.Value
+    }
+    return $current
+}
+
 function Assert-AllocatableGpu {
     <#
         Waits until a node in the pool advertises an allocatable GPU. A Ready
@@ -123,11 +172,13 @@ function Assert-AllocatableGpu {
             'get', 'nodes', '-l', "kubernetes.azure.com/agentpool=$Pool", '-o', 'json'
         )
         $ready = @($nodes.items | Where-Object {
-            $_.status.allocatable.'nvidia.com/gpu' -and
-            ($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' })
+            $gpus = Get-PropertyValue $_ @('status', 'allocatable', 'nvidia.com/gpu')
+            $isReady = @(Get-PropertyValue $_ @('status', 'conditions')) |
+                Where-Object { $_ -and $_.type -eq 'Ready' -and $_.status -eq 'True' }
+            ($gpus -and [int]$gpus -gt 0) -and [bool]$isReady
         })
         if ($ready.Count -gt 0) {
-            $names = ($ready | ForEach-Object { "$($_.metadata.name)=$($_.status.allocatable.'nvidia.com/gpu')" }) -join ', '
+            $names = ($ready | ForEach-Object { "$($_.metadata.name)=$(Get-PropertyValue $_ @('status', 'allocatable', 'nvidia.com/gpu'))" }) -join ', '
             Write-Step "GPU capacity is registered: $names"
             return $ready
         }

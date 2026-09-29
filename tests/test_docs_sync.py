@@ -31,10 +31,13 @@ MIRRORED = {
     "security/ray-t4-network-policies.yaml": "security/ray-t4-network-policies.yaml",
     "security/ray-t4-egress-proxy.yaml": "security/ray-t4-egress-proxy.yaml",
     "security/rayjob-submitter-label.patch.json": "security/rayjob-submitter-label.patch.json",
+    "security/egress-proxy.yaml": "security/egress-proxy.yaml",
+    "security/ray-t4-token-auth-proxy.patch.json": "security/ray-t4-token-auth-proxy.patch.json",
     "monitoring/ray-t4-podmonitor.yaml": "monitoring/ray-t4-podmonitor.yaml",
     "autoscaling/burst.py": "autoscaling/burst.py",
     "autoscaling/raycluster.yaml": "autoscaling/raycluster.yaml",
     "autoscaling/worker-runtime-env.json": "autoscaling/worker-runtime-env.json",
+    "autoscaling/nvidia-device-plugin.yaml": "autoscaling/nvidia-device-plugin.yaml",
 }
 
 

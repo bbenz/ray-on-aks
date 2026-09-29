@@ -26,12 +26,19 @@ variable. The `namespace` variable defaults to `ray-learn|ray-scale`.
 
 ## Query notes from live use
 
+- Querying the Azure Monitor workspace's Prometheus endpoint directly needs
+  **Monitoring Data Reader** on the workspace; subscription Owner doesn't include
+  that data-plane permission.
 - Metric-name discovery with `__name__=~"ray_.*"` was rejected by the managed
-  query endpoint (HTTP 501). Use exact metric names, or the label-values API, to
-  find what a workspace actually holds.
-- DCGM metric names were lowercase (`dcgm_fi_dev_gpu_util`) in that workspace.
-- DCGM series come from AKS-managed GPU pools. A pool created with a manually
-  installed device plugin, like the autoscaling sample's pool, exports Ray's
-  `ray_node_gpus_utilization` but no DCGM series.
+  query endpoint (HTTP 501, "Metric name only support equality(=) filter"). Use
+  exact metric names, or the label-values API, to find what a workspace holds.
+- The label API lists DCGM names in lowercase (`dcgm_fi_dev_gpu_util`); queries
+  matched both that and `DCGM_FI_DEV_GPU_UTIL`.
+- DCGM series need the `ama-metrics-settings-configmap` setting
+  `dcgmexporter = true` and come only from AKS-managed GPU pools. A pool created
+  with a manually installed device plugin, like the autoscaling sample's pool,
+  exports Ray's `ray_node_gpus_utilization` but no DCGM series.
 - A healthy scrape target says the metrics port answered. It is not evidence
   that a GPU task ran or produced correct output.
+- The PodMonitor also scrapes through the security samples' network policies:
+  they allow `rsName=ama-metrics` pods in `kube-system` to reach port 8080.

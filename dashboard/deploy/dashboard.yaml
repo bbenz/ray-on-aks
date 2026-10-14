@@ -1,0 +1,202 @@
+# Ray on AKS demo dashboard: read-only, and reachable only through `kubectl port-forward`.
+#
+# Deploy with ../Deploy-Dashboard.ps1. It also creates the two ConfigMaps this
+# Deployment mounts (the app code and its settings), the pods/log RoleBindings
+# in the Ray namespaces, and the Azure identity the charts use.
+#
+# What the dashboard can do: get and list the objects below, and read pod logs,
+# services, and events in the Ray namespaces it's bound to. It can't read Secrets
+# or ConfigMaps, can't exec into pods, and can't change anything.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ray-dashboard
+  labels:
+    app.kubernetes.io/part-of: ray-on-aks-dashboard
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ray-dashboard
+  namespace: ray-dashboard
+  labels:
+    app.kubernetes.io/part-of: ray-on-aks-dashboard
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ray-dashboard-reader
+  labels:
+    app.kubernetes.io/part-of: ray-on-aks-dashboard
+rules:
+  - apiGroups: [""]
+    resources: [nodes, pods]
+    verbs: [get, list]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list]
+  - apiGroups: [ray.io]
+    resources: [rayclusters, rayjobs]
+    verbs: [get, list]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list]
+  - apiGroups: [azmonitoring.coreos.com]
+    resources: [podmonitors]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ray-dashboard-reader
+  labels:
+    app.kubernetes.io/part-of: ray-on-aks-dashboard
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ray-dashboard-reader
+subjects:
+  - kind: ServiceAccount
+    name: ray-dashboard
+    namespace: ray-dashboard
+---
+# Bound only in the Ray namespaces that exist, by the deploy script (RoleBindings named
+# ray-dashboard): job output from pod logs, the head services, and autoscaling events.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ray-dashboard-namespace-reader
+  labels:
+    app.kubernetes.io/part-of: ray-on-aks-dashboard
+rules:
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [services, events]
+    verbs: [get, list]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ray-dashboard
+  namespace: ray-dashboard
+  labels:
+    app.kubernetes.io/name: ray-dashboard
+    app.kubernetes.io/part-of: ray-on-aks-dashboard
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ray-dashboard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ray-dashboard
+        app.kubernetes.io/part-of: ray-on-aks-dashboard
+      annotations:
+        # The deploy script replaces this with a hash of the code and settings, so a
+        # change rolls the pod.
+        ray-on-aks.dashboard/config-hash: "set-by-deploy-script"
+    spec:
+      serviceAccountName: ray-dashboard
+      nodeSelector:
+        kubernetes.io/os: linux
+      securityContext:
+        runAsNonRoot: true
+        # The image's user is the name "nonroot"; Kubernetes needs the number to verify non-root.
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: dashboard
+          # Azure Linux distroless Python: no shell or package manager. Pinned by digest.
+          image: mcr.microsoft.com/azurelinux/distroless/python:3.12.14-2-nonroot-azl3.0.20260923@sha256:a654be0e0e6a9d872a963597caadc17084bb911f83e3888a9b5a603ff39e620f
+          command: ["python3", "/app/server.py"]
+          ports:
+            # The dashboard listens on 127.0.0.1 inside the pod, so only port-forward reaches it.
+            - name: http
+              containerPort: 8080
+            # Answers /healthz on the pod IP for the kubelet, and nothing else.
+            - name: health
+              containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: ray-dashboard-settings
+          env:
+            - name: BIND_ADDRESS
+              value: "127.0.0.1"
+            - name: HEALTH_PORT
+              value: "8081"
+            - name: AZURE_FEDERATED_TOKEN_FILE
+              value: /var/run/secrets/azure/tokens/azure-identity-token
+            - name: AZURE_AUTHORITY_HOST
+              value: https://login.microsoftonline.com/
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: app
+              mountPath: /app
+              readOnly: true
+            - name: azure-token
+              mountPath: /var/run/secrets/azure/tokens
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: app
+          configMap:
+            name: ray-dashboard-app
+        # Workload identity without the webhook: Microsoft Entra trusts this token through a
+        # federated credential on the dashboard's managed identity.
+        - name: azure-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: azure-identity-token
+                  audience: api://AzureADTokenExchange
+                  expirationSeconds: 3600
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+---
+# Nothing may connect to the pod. kubectl port-forward enters through the pod's own
+# loopback interface, which network policy doesn't govern.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ray-dashboard-deny-ingress
+  namespace: ray-dashboard
+  labels:
+    app.kubernetes.io/part-of: ray-on-aks-dashboard
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]

@@ -42,6 +42,7 @@ compatibility matrix.
 | Container Insights | The actual tensor result and all four inference records appeared in `ContainerLogV2` (both POCs) |
 | Ray autoscaling | Four tasks on four distinct workers; Ready GPU nodes and Ready Ray workers went 1 -> 4 -> 1 (both POCs; September 29 results in the POC notes) |
 | Worker replacement | After deleting the GPU worker pod, the replacement rejoined and both jobs succeeded again (September 18) |
+| Demo dashboard | October 14, on the September 29 cluster after an AKS node image update (`AKSUbuntu-2404gen2containerd-202609.15.0`). `dashboard/Deploy-Dashboard.ps1` ran with `-WhatIf`, for real, and again, including from a console set to code page 437: the rerun created nothing new in Azure, a code change rolled the pod, and the served files matched the repository byte for byte. In the cluster, it read the Kubernetes API, the DCGM exporter on the GPU node's IP, and managed Prometheus and Container insights through a federated managed identity without the workload identity webhook. It followed two live `Invoke-RayQuickstartJobs.ps1 -Secured` runs from submission to verified results, and filled in the September 29 jobs and probes from Container insights. Port-forward reached the loopback-only server through the ingress default-deny policy, and foreign `Host` headers, writes, and source-file paths were refused. |
 
 The September 18 autoscaling run is the input to
 `samples/autoscaling/verify_scaling.py`'s fixtures in `tests/fixtures`, with
@@ -53,11 +54,15 @@ identifiers replaced.
   that have to agree across files do agree. See `tests/`.
 - Every PowerShell script parses under PowerShell 7, and the helpers behave
   under strict mode and `-WhatIf`.
+- The dashboard's log parsers, stage logic, generated queries, HTTP hardening,
+  manifest, and deploy script. See `dashboard/tests`.
 
 ## Not validated
 
 - Kueue admission control, quotas, or fairness.
-- Microsoft Entra Workload ID, Blob Storage access, or any production data path.
+- Microsoft Entra Workload ID for Ray workloads, Blob Storage access, or any
+  production data path. (The demo dashboard's read-only Azure Monitor access
+  through a federated identity is the only Entra path that ran.)
 - mTLS between Ray nodes, or any transport encryption for Ray traffic.
 - Spot eviction and recovery. A worker pod was deleted and replaced; no Azure
   eviction was simulated.

@@ -25,6 +25,7 @@ and a real Ray autoscaling exercise.
 | [`samples/monitoring`](samples/monitoring) | Managed Prometheus `PodMonitor` and a Grafana dashboard. |
 | [`samples/autoscaling`](samples/autoscaling) | Autoscaling RayCluster, burst workload, in-cluster observer, and an offline run verifier. |
 | [`scripts`](scripts) | PowerShell helpers that run the documented commands with precondition checks. |
+| [`dashboard`](dashboard) | A read-only, in-cluster demo dashboard: each article stage's live results, plus Ray and GPU metrics, for presenting the command-line demos. |
 | [`tests`](tests) | Offline checks that keep the samples internally consistent. |
 | [`docs`](docs) | Article map, validation status, known issues, and the POC runbook. |
 
@@ -70,6 +71,22 @@ cluster, add `-NameSuffix <text>`; RayJob names must be unique. When you're done
 Deleting Ray objects doesn't stop the GPU VM charge. Removing or scaling the
 node pool does.
 
+## Show a run on a dashboard
+
+[`dashboard`](dashboard) deploys a read-only web view into the same cluster. It
+walks through the ten stages the articles build, shows each RayJob's status and
+verified result as it runs, and adds live GPU readings, Ray metrics, and cost.
+The command-line steps don't change: run them as usual and the dashboard
+follows along.
+
+```powershell
+./dashboard/Deploy-Dashboard.ps1 -ResourceGroup <rg> -ClusterName <aks>
+kubectl -n ray-dashboard port-forward deployment/ray-dashboard 8090:8080
+```
+
+Then open <http://localhost:8090/>. See [`dashboard/README.md`](dashboard/README.md)
+for what it reads, its security model, and presenting tips.
+
 ## Run the checks
 
 ```powershell
@@ -94,6 +111,9 @@ $env:RAY_ON_AKS_DOCS = "<folder containing the article markdown>"
 
 Passing tests don't prove a cluster works. They prove the samples are
 self-consistent.
+
+The dashboard has its own offline suite:
+`./.venv/Scripts/python -m pytest dashboard/tests`.
 
 ## What's been run for real
 

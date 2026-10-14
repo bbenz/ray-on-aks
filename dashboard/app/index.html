@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ray on AKS · live demo dashboard</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+  <script src="/ui.js" defer></script>
+  <script src="/stages.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top" id="top"></header>
+  <nav class="rail" id="rail" aria-label="Stages from the docs"></nav>
+  <main class="main" id="main" tabindex="-1">
+    <div class="empty"><div class="spinner" aria-hidden="true"></div><p>Connecting to the cluster…</p></div>
+  </main>
+  <footer class="tele" id="tele" aria-label="Live telemetry"></footer>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="help" id="help" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
+    <div class="help-card">
+      <h2 id="help-title">Keyboard</h2>
+      <dl>
+        <dt>← →</dt><dd>Previous or next stage (a presentation clicker's Page Up and Page Down work too)</dd>
+        <dt>1–9, 0</dt><dd>Jump to a stage (0 is stage 10)</dd>
+        <dt>F</dt><dd>Follow live jobs: jump to a RayJob when it starts or changes status</dd>
+        <dt>T</dt><dd>Next chart window: 15 min, 1 h, 6 h, 24 h</dd>
+        <dt>R</dt><dd>Replay the recorded autoscaling run, if one is configured</dd>
+        <dt>?</dt><dd>Show or hide this help</dd>
+      </dl>
+      <p class="dim">Read-only. Nothing on this page changes the cluster.</p>
+    </div>
+  </div>
+</body>
+</html>

@@ -25,6 +25,11 @@ jobs:
       - name: Run the offline checks
         run: python -m pytest
 
+      # The demo dashboard's own suite. Node.js and PowerShell 7 on the runner
+      # let it also syntax-check the JavaScript and the deploy script.
+      - name: Run the dashboard checks
+        run: python -m pytest dashboard/tests
+
       # These checks compare the samples with the companion articles. They are
       # skipped unless RAY_ON_AKS_DOCS points at a checkout of the article
       # source, which isn't public yet.
